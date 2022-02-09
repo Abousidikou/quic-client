@@ -11,15 +11,14 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"time"
 )
 
 var (
-	downurl = flag.String("downurl", "https://emes.bj:4444/downloadStat", "The address and port to use for getting download Stat")
-	url     = flag.String("url", "emes.bj:4447", "The address and port to use for getting test done ")
+	url  = flag.String("url", "emes.bj", "The address to use for getting test done ")
+	port = flag.Int("p", 4447, "The  port to use for getting test done ")
 )
-
-const addr = "emes.bj:4447"
 
 const ratio = 1048576
 
@@ -74,7 +73,10 @@ var msg = generatePRData(int(msgSize))
 // then connect with a client, send the message, and wait for its receipt.
 func main() {
 	flag.Parse()
-	//addr := *url
+	//
+	addr := *url + ":" + strconv.Itoa(*port)
+	downurl := "https://" + *url + ":4444/downloadStat"
+
 	tlsConf := &tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{"quic-echo-example"},
@@ -82,7 +84,7 @@ func main() {
 	fmt.Println("QUIC Testing")
 
 	//fmt.Println("Establishing session...")
-	session, err := quic.DialAddr(*url, tlsConf, nil)
+	session, err := quic.DialAddr(addr, tlsConf, nil)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -99,21 +101,22 @@ func main() {
 	//fmt.Println("Stream Opened")
 	spin := spinner.New(spinner.CharSets[43], 100*time.Millisecond)
 	//spin.FinalMSG = ""
-	fmt.Println("Download Testing")
+	fmt.Println("Upload Testing")
 	stream.SetWriteDeadline(time.Now().Add(13 * time.Second))
 	spin.Start()
-	bytesSent, _ := stream.Write(msg)
+	stream.Write(msg)
 	spin.Stop()
-	fmt.Println("BytesSent: ", bytesSent)
-	resp, err := http.Get(*downurl)
+	//fmt.Println("BytesSent: ", bytesSent)
+	resp, err := http.Get(downurl)
 	if err == nil {
 		body, _ := ioutil.ReadAll(resp.Body)
 		//Convert the body to type string
 		sb := string(body)
-		fmt.Printf("Avg. Download Speed: %s Mbps\n", sb)
+		fmt.Printf("Avg. Upload Speed: %s Mbps\n", sb)
 	}
-	fmt.Println("Download Complete")
-	fmt.Println("Upload Testing")
+	fmt.Println("Upload Complete")
+	fmt.Println("")
+	fmt.Println("Download Testing")
 	buf := make([]byte, len(msg))
 	stream.SetReadDeadline(time.Now().Add(13 * time.Second))
 	t1 := time.Now()
@@ -123,8 +126,8 @@ func main() {
 	spin.Stop()
 	bps := float64(bytesReceived*8) / sendTime.Seconds()
 	Mbps := float64(bps / ratio)
-	fmt.Printf("Avg. Upload Speed: %.3f Mbps", Mbps)
+	fmt.Printf("Avg. Download Speed: %.3f Mbps", Mbps)
 	fmt.Println("")
-	fmt.Println("Upload Complete")
+	fmt.Println("Download Complete")
 
 }
