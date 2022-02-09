@@ -1,0 +1,187 @@
+package main
+
+import (
+	"bufio"
+	//"bytes"
+	"context"
+	//"crypto/rand"
+	//"crypto/rsa"
+	"crypto/tls"
+	"flag"
+	//"crypto/x509"
+	//"encoding/pem"
+	"fmt"
+	"io"
+	"io/ioutil"
+	//"log"
+	//"os"
+	//"net/http"
+	"time"
+	//"math/big"
+
+	//"github.com/gosuri/uilive"
+	//tracer "github.com/QUIC-Tracker/quic-tracker"
+	"github.com/briandowns/spinner"
+	quic "github.com/lucas-clemente/quic-go"
+)
+
+var (
+	downurl = flag.String("downurl", "https://test.emes.bj:4444/downloadStat", "The address and port to use for getting download Stat")
+	url     = flag.String("url", "test.emes.bj:4447", "The address and port to use for getting test done ")
+)
+
+const ratio = 1048576
+
+// A wrapper for io.Writer that also logs the message.
+type loggingWriter struct{ io.Writer }
+
+func (w loggingWriter) Write(b []byte) (int, error) {
+	fmt.Printf("Server: Got '%s'\n", string(b))
+	return w.Writer.Write(b)
+}
+
+// Size is needed by the /demo/upload handler to determine the size of the uploaded file
+type Size interface {
+	Size() int64
+}
+
+// Generate data Byte from interger(lengh)
+func generatePRData(l int) []byte {
+	res := make([]byte, l)
+	seed := uint64(1)
+	for i := 0; i < l; i++ {
+		seed = seed * 48271 % 2147483647
+		res[i] = byte(seed)
+	}
+	return res
+}
+
+type bufferedWriteCloser struct {
+	*bufio.Writer
+	io.Closer
+}
+
+// NewBufferedWriteCloser creates an io.WriteCloser from a bufio.Writer and an io.Closer
+func NewBufferedWriteCloser(writer *bufio.Writer, closer io.Closer) io.WriteCloser {
+	return &bufferedWriteCloser{
+		Writer: writer,
+		Closer: closer,
+	}
+}
+
+func (h bufferedWriteCloser) Close() error {
+	if err := h.Writer.Flush(); err != nil {
+		return err
+	}
+	return h.Closer.Close()
+}
+
+var msgSize = 1 << 25 //33MB
+var msg = generatePRData(int(msgSize))
+
+// We start a server echoing data on the first stream the client opens,
+// then connect with a client, send the message, and wait for its receipt.
+func main() {
+	//fmt.Println("Client: Connnecting to ", addr)
+	//tracer := quictrace.NewTracer()
+	flag.Parse()
+	filetosend, err := ioutil.ReadFile("4.mp4")
+	tlsConf := &tls.Config{
+		InsecureSkipVerify: true,
+		NextProtos:         []string{"quic-echo-example"},
+	}
+	fmt.Println("QUIC Testing")
+
+	//fmt.Println("Establishing session...")
+	session, err := quic.DialAddr(*url, tlsConf, nil)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("Server : ", session.RemoteAddr())
+
+	//fmt.Println("Opening unidirectional stream...")
+	stream, err := session.OpenStreamSync(context.Background())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer stream.Close()
+	//fmt.Println("Stream Opened")
+	spin := spinner.New(spinner.CharSets[43], 100*time.Millisecond)
+	//spin.FinalMSG = ""
+	fmt.Println("Upload Testing")
+	//stream.SetWriteDeadline(time.Now().Add(13 * time.Second))
+	spin.Start()
+	bytesSent, _ := stream.Write(filetosend)
+	spin.Stop()
+	fmt.Println("BytesSent: ", bytesSent)
+	// Receiving download stat
+	/*stream.SetReadDeadline(time.Now().Add(13 * time.Second))
+	m, _ := io.ReadAll(stream)
+	//fmt.Println("Avg. Download Speed: ", string(m))*/
+	fmt.Println("Upload Complete")
+	t1 := time.Now()
+	buf := make([]byte, 1024)
+	var receivedFileByte []byte
+	for {
+		fmt.Println("In for loop")
+		if len(receivedFileByte) != 0 {
+			stream.SetReadDeadline(time.Now().Add(2 * time.Second))
+		}
+		n, err := io.ReadFull(stream, buf)
+		fmt.Println("Read 1024 bytes into buf:", n)
+		if err != nil {
+			if err == io.EOF {
+				fmt.Println(string(buf[:n])) //should handle any remainding bytes.
+				receivedFileByte = append(receivedFileByte, buf...)
+				break
+			}
+			fmt.Println(err)
+			receivedFileByte = append(receivedFileByte, buf...)
+			break
+		}
+
+		//fmt.Println("1024 bytes")
+		receivedFileByte = append(receivedFileByte, buf...)
+		//fmt.Println("Received Bytes: ", len(receivedFileByte), " bytes")
+	}
+
+	//permissions := 0644 // or whatever you need
+	err = ioutil.WriteFile("s.mp4", receivedFileByte, 0777)
+	if err != nil {
+		fmt.Println("ERR:", err)
+	}
+	sendTime := time.Since(t1)
+	fmt.Println("File received")
+	fmt.Println("BytesReceived: ", len(receivedFileByte))
+	fmt.Println("Time receiving:", sendTime)
+	/*resp, err := http.Get(*downurl)
+	if err != nil {
+		fmt.Println(err)
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err)
+	}
+	//Convert the body to type string
+	sb := string(body)
+	fmt.Printf("Avg. Download Speed: %s Mbps\n", sb)
+	fmt.Println("Upload Testing")
+	buf := make([]byte, len(msg))
+	stream.SetReadDeadline(time.Now().Add(13 * time.Second))
+	t1 := time.Now()
+	spin.Restart()
+	bytesReceived, _ := io.ReadFull(stream, buf)
+	sendTime := time.Since(t1)
+	spin.Stop()
+	//fmt.Printf("Client: Got '%s'\n", buf)
+	//fmt.Println("BytesReceived: ", bytesReceived)
+	//fmt.Println("Time receiving:", sendTime)
+	bps := float64(bytesReceived*8) / sendTime.Seconds()
+	Mbps := float64(bps / ratio)
+	fmt.Printf("Avg. Upload Speed: %.3f Mbps", Mbps)
+	fmt.Println("")
+	fmt.Println("Upload Complete")*/
+
+}

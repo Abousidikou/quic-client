@@ -7,23 +7,29 @@ import (
 	//"crypto/rand"
 	//"crypto/rsa"
 	"crypto/tls"
+	"flag"
 	//"crypto/x509"
 	//"encoding/pem"
 	"fmt"
 	"io"
-	//"io/ioutil"
-	//"log"
+	"io/ioutil"
+	"log"
 	//"os"
+	"net/http"
 	"time"
 	//"math/big"
 
 	//"github.com/gosuri/uilive"
-	tracer "github.com/QUIC-Tracker/quic-tracker"
+	//tracer "github.com/QUIC-Tracker/quic-tracker"
 	"github.com/briandowns/spinner"
 	quic "github.com/lucas-clemente/quic-go"
 )
 
-const addr = "185.249.225.52:4448"
+var (
+	downurl = flag.String("downurl", "https://emes.bj:4444/downloadStat", "The address and port to use for getting download Stat")
+	url     = flag.String("url", "emes.bj:4447", "The address and port to use for getting test done ")
+)
+
 const ratio = 1048576
 
 // A wrapper for io.Writer that also logs the message.
@@ -86,7 +92,7 @@ func main() {
 	fmt.Println("QUIC Testing")
 
 	//fmt.Println("Establishing session...")
-	session, err := quic.DialAddr(addr, tlsConf, nil)
+	session, err := quic.DialAddr(*url, tlsConf, nil)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -114,7 +120,17 @@ func main() {
 	m, _ := io.ReadAll(stream)
 	//fmt.Println("Avg. Download Speed: ", string(m))*/
 	fmt.Println("Download Complete")
-
+	resp, err := http.Get(*downurl)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	//Convert the body to type string
+	sb := string(body)
+	fmt.Printf("Avg. Download Speed: %s Mbps\n", sb)
 	fmt.Println("Upload Testing")
 	buf := make([]byte, len(msg))
 	stream.SetReadDeadline(time.Now().Add(13 * time.Second))
@@ -125,13 +141,11 @@ func main() {
 	spin.Stop()
 	//fmt.Printf("Client: Got '%s'\n", buf)
 	//fmt.Println("BytesReceived: ", bytesReceived)
-	//fmt.Println("Time receiving:", sendTime.Seconds())
+	//fmt.Println("Time receiving:", sendTime)
 	bps := float64(bytesReceived*8) / sendTime.Seconds()
 	Mbps := float64(bps / ratio)
 	fmt.Printf("Avg. Upload Speed: %.3f Mbps", Mbps)
 	fmt.Println("")
 	fmt.Println("Upload Complete")
 
-	tr := tracer.NewTracer()
-	fmt.Println(tr)
 }
