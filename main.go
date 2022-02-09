@@ -2,27 +2,17 @@ package main
 
 import (
 	"bufio"
-	//"bytes"
 	"context"
-	//"crypto/rand"
-	//"crypto/rsa"
 	"crypto/tls"
 	"flag"
-	//"crypto/x509"
-	//"encoding/pem"
 	"fmt"
+	"github.com/briandowns/spinner"
+	quic "github.com/lucas-clemente/quic-go"
 	"io"
 	"io/ioutil"
 	"log"
-	//"os"
 	"net/http"
 	"time"
-	//"math/big"
-
-	//"github.com/gosuri/uilive"
-	//tracer "github.com/QUIC-Tracker/quic-tracker"
-	"github.com/briandowns/spinner"
-	quic "github.com/lucas-clemente/quic-go"
 )
 
 var (
@@ -82,8 +72,6 @@ var msg = generatePRData(int(msgSize))
 // We start a server echoing data on the first stream the client opens,
 // then connect with a client, send the message, and wait for its receipt.
 func main() {
-	//fmt.Println("Client: Connnecting to ", addr)
-	//tracer := quictrace.NewTracer()
 
 	tlsConf := &tls.Config{
 		InsecureSkipVerify: true,
@@ -115,10 +103,6 @@ func main() {
 	bytesSent, _ := stream.Write(msg)
 	spin.Stop()
 	fmt.Println("BytesSent: ", bytesSent)
-	// Receiving download stat
-	/*stream.SetReadDeadline(time.Now().Add(13 * time.Second))
-	m, _ := io.ReadAll(stream)
-	//fmt.Println("Avg. Download Speed: ", string(m))*/
 	fmt.Println("Download Complete")
 	resp, err := http.Get(*downurl)
 	if err != nil {
@@ -139,9 +123,6 @@ func main() {
 	bytesReceived, _ := io.ReadFull(stream, buf)
 	sendTime := time.Since(t1)
 	spin.Stop()
-	//fmt.Printf("Client: Got '%s'\n", buf)
-	//fmt.Println("BytesReceived: ", bytesReceived)
-	//fmt.Println("Time receiving:", sendTime)
 	bps := float64(bytesReceived*8) / sendTime.Seconds()
 	Mbps := float64(bps / ratio)
 	fmt.Printf("Avg. Upload Speed: %.3f Mbps", Mbps)
