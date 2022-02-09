@@ -1,4 +1,4 @@
-module quic-client
+module github.com/Abousidikou/quic-client
 
 go 1.17
 
