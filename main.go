@@ -10,7 +10,6 @@ import (
 	quic "github.com/lucas-clemente/quic-go"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"time"
 )
@@ -19,6 +18,8 @@ var (
 	downurl = flag.String("downurl", "https://emes.bj:4444/downloadStat", "The address and port to use for getting download Stat")
 	url     = flag.String("url", "emes.bj:4447", "The address and port to use for getting test done ")
 )
+
+const addr = "emes.bj:4447"
 
 const ratio = 1048576
 
@@ -72,7 +73,8 @@ var msg = generatePRData(int(msgSize))
 // We start a server echoing data on the first stream the client opens,
 // then connect with a client, send the message, and wait for its receipt.
 func main() {
-
+	flag.Parse()
+	//addr := *url
 	tlsConf := &tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{"quic-echo-example"},
@@ -103,18 +105,14 @@ func main() {
 	bytesSent, _ := stream.Write(msg)
 	spin.Stop()
 	fmt.Println("BytesSent: ", bytesSent)
-	fmt.Println("Download Complete")
 	resp, err := http.Get(*downurl)
-	if err != nil {
-		log.Fatalln(err)
+	if err == nil {
+		body, _ := ioutil.ReadAll(resp.Body)
+		//Convert the body to type string
+		sb := string(body)
+		fmt.Printf("Avg. Download Speed: %s Mbps\n", sb)
 	}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	//Convert the body to type string
-	sb := string(body)
-	fmt.Printf("Avg. Download Speed: %s Mbps\n", sb)
+	fmt.Println("Download Complete")
 	fmt.Println("Upload Testing")
 	buf := make([]byte, len(msg))
 	stream.SetReadDeadline(time.Now().Add(13 * time.Second))
