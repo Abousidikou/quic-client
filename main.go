@@ -22,8 +22,8 @@ const ratio = 1048576
 var (
 	url          = flag.String("u", "emes.bj", "The address to use for getting test done ")
 	port         = flag.Int("p", 4447, "The  port to use for getting test done ")
-	numberStream = flag.Int("n", 1, "The  number of bidirectional stream ")
-	dataSize     = flag.Int("d", 1<<25, "The  number of bidirectional stream ")
+	numberStream = flag.Int("n", 30, "The  number of bidirectional stream ")
+	dataSize     = flag.Int("d", 262144, "The  number of bidirectional stream ")
 )
 
 //var msgSize = 1 << 25 // 33MB
