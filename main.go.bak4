@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -23,10 +26,9 @@ var (
 	url          = flag.String("u", "emes.bj", "The address to use for getting test done ")
 	port         = flag.Int("p", 4447, "The  port to use for getting test done ")
 	numberStream = flag.Int("n", 1, "The  number of bidirectional stream ")
-	dataSize     = flag.Int("d", 1<<25, "The  number of bidirectional stream ")
+	dataSize     = flag.Int("d", 1<<25, "The  DataSize for test")
 )
-
-//var msgSize = 1 << 25 // 33MB
+var msgSize = 1 << 25 //33MB
 var mu sync.Mutex
 
 // A wrapper for io.Writer that also logs the message.
@@ -40,6 +42,10 @@ func (w loggingWriter) Write(b []byte) (int, error) {
 // Size is needed by the /demo/upload handler to determine the size of the uploaded file
 type Size interface {
 	Size() int64
+}
+type Params struct {
+	numberStream int `json:"numberStream"`
+	dataSize     int `json:"dataSize"`
 }
 
 // Generate data Byte from interger(lengh)
@@ -76,44 +82,62 @@ func (h bufferedWriteCloser) Close() error {
 // We start a server echoing data on the first stream the client opens,
 // then connect with a client, send the message, and wait for its receipt.
 func main() {
-	//////////////////////   Init
 	flag.Parse()
+	/////////////////////////////////////////////////////////  Connection
 	addr := *url + ":" + strconv.Itoa(*port)
-	//downurl := "https://" + *url + ":4444/downloadStat"
-	paramUrl := "https://" + *url + ":4444/params?nStream=" + strconv.Itoa(*numberStream) + "&dataSize=" + strconv.Itoa(*dataSize)
+	downurl := "https://" + *url + ":4444/downloadStat"
+
 	tlsConf := &tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{"quic-echo-example"},
 	}
-	//////////////////////////////////////////////////////////     Parameters
-	param, err := http.Get(paramUrl)
-	if err != nil {
-		return
-	}
-	body, _ := ioutil.ReadAll(param.Body)
-	msgReceived := string(body)
-	if msgReceived != "Paramaters Received" {
-		fmt.Println("Parameters not received")
-		return
-	}
-	/////////////////  Connection
-	quicC := &quic.Config{
-		//MaxIdleTimeout: 60 * time.Second,
-		MaxIncomingStreams: 150,
-	}
 	fmt.Println("QUIC Testing")
-	sess, err := quic.DialAddr(addr, tlsConf, quicC)
+
+	//fmt.Println("Establishing session...")
+	sess, err := quic.DialAddr(addr, tlsConf, nil)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	fmt.Println("Server : ", sess.RemoteAddr())
 
+	//////////////////////////////////////////////////////////// Parameters
+	parameters := Params{
+		numberStream: *numberStream,
+		dataSize:     *dataSize,
+	}
+	p, _ := json.Marshal(parameters)
+	fmt.Println("len p:", len(p))
+	//fmt.Println("Opening bidirectional stream...")
+	stream, err := sess.OpenStreamSync(context.Background())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer stream.Close()
+	fmt.Println("Sending parameters...")
+	fmt.Println(parameters)
+	stream.Write(p)
+	fmt.Println("Waiting for response...")
+	stream.SetReadDeadline(time.Now().Add(15 * time.Second))
+	f := make([]byte, 3)
+	n, err := io.ReadFull(stream, f)
+	if err != nil {
+		fmt.Println("n: ", n)
+		fmt.Println("Err:", err)
+		return
+	}
+	fmt.Println("n", n)
+	fmt.Println(string(f))
+	fmt.Println("Parameters sent")
+
+	////////////////////////////////////////////////////////////////  End Sending Parameters
+
 	///////////////////////////////////////////////////////////////   Uploading Test
 	spin := spinner.New(spinner.CharSets[43], 100*time.Millisecond)
 	msg := generatePRData(*dataSize)
 	//msgSize := *dataSize / *numberStream
-	fmt.Println("Msg Size: ", *dataSize)
+	fmt.Println("Msg Size: ", msgSize)
 	fmt.Println("Nombre de stream: ", *numberStream)
 	//spin.FinalMSG = ""
 	var w sync.WaitGroup
@@ -122,26 +146,53 @@ func main() {
 	spin.Start()
 	//var indexByte int
 	for i := 0; i < *numberStream; i++ {
-		//fmt.Println("Waiting for next stream. Accept by peer..")
+		fmt.Println(i)
+		fmt.Println("Waiting for next stream. Accept by peer..")
 		streamUp, err := sess.OpenStreamSync(context.Background())
 		if err != nil {
 			fmt.Println(" Stream created error: ", err)
 		}
-		defer streamUp.Close()
+		fileLog := fmt.Sprintf("fileLog_%d.log", int64(streamUp.StreamID()))
+		file, err := os.Create(fileLog)
+
+		defer file.Close()
+
+		if err != nil {
+			log.Fatal(err)
+		}
+		file.WriteString("Stream Accepted with i: " + strconv.Itoa(i) + "\n")
 		w.Add(1)
 		// Ajusting msg size
+		/*if i == 0 {
+			realMsg = msg[:msgSize]
+			indexByte = msgSize
+		} else if i == *numberStream-1 {
+			realMsg = msg[indexByte:]
+		} else {
+			realMsg = msg[indexByte : indexByte+msgSize]
+			indexByte += msgSize
+		}*/
 		//// Start sending
 		go func(streamUp quic.Stream) {
 			defer w.Done()
 			//fmt.Println("file created")
+			file.WriteString("File created\n")
 			streamUp.SetWriteDeadline(time.Now().Add(13 * time.Second))
-			streamUp.Write(msg)
-			//fmt.Println("Bytes sent:" + strconv.Itoa(b))
+			b, _ := streamUp.Write(msg)
+			fmt.Println("Bytes sent:" + strconv.Itoa(b))
+			file.WriteString("Bytes sent:" + strconv.Itoa(b) + "\n\n")
 		}(streamUp)
-		//fmt.Println("Go fun lauched with i=", i)
+		fmt.Println("Go fun lauched with i=", i)
 	}
 	w.Wait()
+	resp, err := http.Get(downurl)
 	spin.Stop()
+	if err == nil {
+		body, _ := ioutil.ReadAll(resp.Body)
+		//Convert the body to type string
+		sb := string(body)
+		fmt.Printf("Avg. Upload Speed: %s Mbps\n", sb)
+	}
 	fmt.Println("Upload Complete")
 	///////////////////////////////////////////////////////////////////   End Upload Test
 
@@ -151,71 +202,63 @@ func main() {
 	var times []time.Duration
 	spin.Start()
 	for i := 0; i < *numberStream; i++ {
+		fmt.Println(i)
 		streamDown, err := sess.AcceptStream(context.Background())
 		if err != nil {
 			fmt.Println(" Stream created error: ", err)
 			return
 		}
-		streamDown.Close()
-		//fmt.Println("Stream Accepted with ID: ", streamDown.StreamID())
+		fmt.Println("Stream Accepted with ID: ", streamDown.StreamID())
 		w.Add(1)
 		go func(streamDown quic.Stream) {
 			defer w.Done()
+			fileLog := fmt.Sprintf("fileLog_%d.log", int64(streamDown.StreamID()))
+			file, err := os.Create(fileLog)
+			defer file.Close()
+
+			if err != nil {
+				log.Fatal(err)
+			}
 			//fmt.Println("file created")
-			//streamDown.SetReadDeadline(time.Now().Add(13 * time.Second))
+			file.WriteString("File created\n")
+			streamDown.SetReadDeadline(time.Now().Add(13 * time.Second))
 			t1 := time.Now()
 			//bytesReceived, err := io.Copy(&buf, stream) //loggingWriter{stream}
-			/*buff := make([]byte, *dataSize)
-			byter, _ := io.ReadFull(streamDown, buff)*/
-			buff := make([]byte, 4)
-			var rByte int
-			for {
-				streamDown.SetReadDeadline(time.Now().Add(1 * time.Second))
-				byter, er := io.ReadFull(streamDown, buff)
-				rByte += byter
-				if er != nil {
-					//fmt.Println(err)
-					break
-				}
-			}
+			buff := make([]byte, *dataSize)
+			byter, _ := io.ReadFull(streamDown, buff)
 			d_temp := time.Since(t1)
-			//fmt.Println("byte: " + strconv.Itoa(byter))
+			file.WriteString("d_temp:" + d_temp.String() + "\n")
+			file.WriteString("byte: " + strconv.Itoa(byter) + "\n")
+			fmt.Println("byte: " + strconv.Itoa(byter))
 			mu.Lock()
 			times = append(times, d_temp)
-			//total += byter
-			total += rByte
+			total += byter
 			mu.Unlock()
 		}(streamDown)
-		//fmt.Println("Go fun lauched with i=", i)
+		fmt.Println("Go fun lauched with i=", i)
 	}
 	w.Wait()
 	spin.Stop()
-	fmt.Println("Download Complete")
 	t := times[0]
 	for ind := range times {
 		if t < times[ind] {
 			t = times[ind]
 		}
 	}
-	//fmt.Println("Bytes Received: ", total)
-	//fmt.Println("Time for receiving", t.Microseconds())
+	fmt.Println("Bytes Received: ", total)
+	fmt.Println("Time for receiving", t.Microseconds())
 	bps := float64(total*8) / t.Seconds()
 	Mbps := float64(bps / ratio)
-	//fmt.Printf("Avg. Download Speed: %.3f Mbps", Mbps)
-	//fmt.Println("")
+	fmt.Printf("Avg. Download Speed: %.3f Mbps", Mbps)
+	fmt.Println("")
 	strMbps := fmt.Sprintf("%.3f", Mbps)
-	//fmt.Println("Download Complete")
-
-	////////// Stat
-	finishUrl := "https://" + *url + ":4444/testFinished?down=" + strMbps
-	res, err := http.Get(finishUrl)
-	if err != nil {
+	fmt.Println(strMbps)
+	createUrl := "https://" + *url + ":4444/createJson?down=" + strMbps
+	res, err := http.Get(createUrl)
+	if err == nil {
+		fmt.Println(res)
 		fmt.Println(err)
 	}
-	bo, _ := ioutil.ReadAll(res.Body)
-	sb := string(bo)
-	fmt.Println("Results:")
-	fmt.Println("         Avg. Download Speed: ", strMbps, " Mbps")
-	fmt.Printf("         Avg. Upload Speed: %s Mbps\n", sb)
+	fmt.Println("Download Complete")
 
 }
