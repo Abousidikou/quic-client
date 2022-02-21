@@ -59,3 +59,20 @@ Clone the repository and install
 git clone https://github.com/Abousidikou/quic-client.git && cd quic-client
 go install
 ```
+
+# Verify Installation
+```bash
+quic-client -h
+```
+The result :
+```bash
+Usage of quic-client:
+  -d int
+    	The  number of bidirectional stream  (default 262144)
+  -n int
+    	The  number of bidirectional stream  (default 30)
+  -p int
+    	The  port to use for getting test done  (default 4447)
+  -u string
+    	The address to use for getting test done  (default "emes.bj")
+```
